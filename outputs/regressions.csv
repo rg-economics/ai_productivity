@@ -1,0 +1,13 @@
+"model","term","estimate","se_hc3","p_hc3"
+"Main: growth on AI change","(Intercept)",-1.12802491885471,1.93270099246498,0.571227958846517
+"Main: growth on AI change","ai_change_pp",0.0362988890203417,0.145832898737561,0.808018653641983
+"Main: growth on AI change + 2015-19 trend","(Intercept)",-1.26782612545294,2.26462208169682,0.587908685950442
+"Main: growth on AI change + 2015-19 trend","ai_change_pp",0.0144921330969075,0.161317823421486,0.930191468509231
+"Main: growth on AI change + 2015-19 trend","g_pre",0.492007461795541,0.48637850861971,0.335591916110611
+"Hours-weighted: growth on AI change","(Intercept)",-1.86225202176698,1.93286268726173,0.356015275186634
+"Hours-weighted: growth on AI change","ai_change_pp",0.115267028533835,0.110333602052948,0.318570463150335
+"Hours-weighted: growth on AI change + 2015-19 trend","(Intercept)",-1.87269450999736,2.12985985657818,0.399897003169679
+"Hours-weighted: growth on AI change + 2015-19 trend","ai_change_pp",0.0993470483070233,0.117858041770403,0.418968130392047
+"Hours-weighted: growth on AI change + 2015-19 trend","g_pre",0.28638471464817,0.499983714398287,0.579438367967009
+"First draft spec: growth on AI change","(Intercept)",-3.00713642630736,1.85688341966893,0.133638812316244
+"First draft spec: growth on AI change","ai_change_single",0.143567963887077,0.0789123624237258,0.0961584051190371

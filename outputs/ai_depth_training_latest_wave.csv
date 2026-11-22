@@ -1,0 +1,16 @@
+"industry","short","extensive","limited","pilots","trained_half_plus","no_training"
+"Manufacturing","Manufacturing",0.072,0.641,0.052,0.101,0.611
+"Water supply, sewerage, waste management and remediation activities","Water & waste",NA,NA,NA,NA,NA
+"Construction","Construction",NA,0.638,NA,NA,0.677
+"Wholesale and retail trade; repair of motor vehicles and motorcycles","Wholesale & retail",0.103,0.693,0.02,0.128,0.584
+"Transportation and storage","Transport",NA,NA,NA,NA,NA
+"Accommodation and food service activities","Hospitality",NA,0.507,NA,0,0.425
+"Information and communication","Info & comms",0.373,0.523,0.022,0.392,0.378
+"Real estate activities","Real estate",NA,NA,NA,NA,NA
+"Professional, scientific and technical activities","Professional services",0.224,0.6,0.035,0.306,0.408
+"Administrative and support service activities","Admin & support",0.155,0.631,0.031,NA,0.6
+"Education","Education",NA,NA,NA,NA,NA
+"Human health and social work activities","Health & social care",NA,NA,NA,NA,NA
+"Arts, entertainment and recreation","Arts & leisure",0.058,0.609,NA,NA,0.381
+"Other service activities","Other services",NA,NA,NA,NA,NA
+"All businesses","All businesses",0.151,0.614,0.022,0.197,0.477
