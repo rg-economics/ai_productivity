@@ -11,14 +11,20 @@
 #
 # Data (all public, saved in data_raw/)
 #   bics_w165.xlsx      ONS Business Insights and Conditions Survey, wave 165 dataset
-#   oph_by_section.xlsx ONS Output per hour worked, UK (data to 2026 Q1)
+#   oph_by_section.xlsx ONS Output per hour worked, UK, 18 Aug 2026 release (data to 2026 Q1).
+#                       This is the latest industry-level release: the 17 Nov 2026 release
+#                       moved to a new method and covers the whole economy only.
+#   oph_whole_economy_nov2026.xlsx  ONS Output per hour worked, UK, 17 Nov 2026 release
+#                       (whole economy, new component approach, data to 2026 Q3)
 #   foi_ai_sic.xlsx     ONS FOI-2026-3675 (AI use in legal, accounting and consultancy)
 #
 # Main specification (changed from the first draft after review)
-#   - AI change = average of the last two AI waves up to the end of the productivity data
-#     (wave 147, Dec 2025 and wave 153, Mar 2026) minus the average of the first two
-#     (wave 92, Sept 2023 and wave 98, Dec 2023). Single BICS industry waves are noisy and
-#     the first draft used AI data from after the productivity data ended.
+#   - AI change = trend in each industry's AI share fitted through every AI wave from
+#     Sept 2023 (wave 92) to Mar 2026 (wave 153), expressed as the fitted change in
+#     percentage points over that period. This matches the productivity window (to 2026 Q1)
+#     and uses the same fitted-trend approach as productivity. Single BICS industry waves are
+#     noisy, and the first draft used AI data from after the productivity data ended.
+#     Two-wave averages at each end are kept as a robustness check.
 #   - Productivity growth = trend growth fitted through every quarter (log-linear OLS),
 #     not growth between two single quarters.
 #   - Pre-trend is used as a regression control as well as being subtracted one for one.
@@ -28,6 +34,9 @@
 #     by employment. They exclude finance, public admin, agriculture and energy. Some cells
 #     are suppressed by ONS. Water and waste has no usable AI data.
 #   - AI use is self-reported and counts any use of at least one AI technology.
+#   - Industry hours come from the Labour Force Survey, whose quality has been weak since 2023.
+#     The industry productivity data are "official statistics in development" and may be revised
+#     when ONS moves industry estimates to its new method.
 #   - 13 industries only. Correlation, not causation.
 
 suppressPackageStartupMessages({
@@ -112,8 +121,9 @@ depth <- ind_map |> select(industry = bics, short) |>
 write.csv(depth, "outputs/ai_depth_training_latest_wave.csv", row.names = FALSE)
 
 # Two-wave average of extensive use (waves 159 and 165) for the correlation check
-ext_avg <- extent_all |> group_by(industry) |>
-  summarise(extensive_avg = mean(extensive), n_waves = sum(!is.na(extensive)), .groups = "drop")
+ext_avg <- extent_all |> filter(Wave %in% c("Wave 159", "Wave 165")) |> group_by(industry) |>
+  summarise(extensive_avg = mean(extensive),             # NA if either wave is suppressed
+            n_waves = sum(!is.na(extensive)), .groups = "drop")
 
 # ---- 3. Productivity and hours by industry -----------------------------------
 read_ons_q <- function(sheet, value) {
@@ -158,10 +168,32 @@ hours_w <- hours |> filter(year == 2023) |> group_by(oph_ind) |>
 
 whole_econ <- prod |> filter(oph_ind == "Whole Economy excluding imputed rental")
 
+# Whole economy, latest ONS release (17 Nov 2026, new method, data to 2026 Q3)
+we_new <- read_excel("data_raw/oph_whole_economy_nov2026.xlsx", sheet = "Table_11", col_names = FALSE,
+                     .name_repair = "minimal")[, 1:2] |>
+  setNames(c("Quarter", "oph")) |>
+  filter(str_detect(Quarter, "^\\d{4} Q[1-4]$")) |>
+  mutate(oph = to_num(oph), t = qt(Quarter))
+we_latest_q <- tail(we_new$Quarter, 1)
+aggregate <- tibble(
+  source = c("18 Aug 2026 release (old method)", "17 Nov 2026 release (new method)", "17 Nov 2026 release (new method)"),
+  window_post = c(paste("2023 Q3 to", latest_q), paste("2023 Q3 to", latest_q), paste("2023 Q3 to", we_latest_q)),
+  growth_post = c(whole_econ$g_post, trend_growth(we_new, "2023 Q3", latest_q), trend_growth(we_new, "2023 Q3", we_latest_q)),
+  growth_2015_19 = c(whole_econ$g_pre, rep(trend_growth(we_new, "2015 Q1", "2019 Q4"), 2)))
+write.csv(aggregate, "outputs/whole_economy_productivity.csv", row.names = FALSE)
+
 # ---- 4. Industry panel -------------------------------------------------------
 ai_avg <- function(w, name) use_ind |> filter(Wave %in% w) |>
-  group_by(short) |> summarise("{name}" := mean(ai_use, na.rm = TRUE), .groups = "drop")
+  group_by(short) |> summarise("{name}" := mean(ai_use), .groups = "drop")   # NA if a wave is suppressed
 ai_single <- function(w, name) use_ind |> filter(Wave == w) |> select(short, "{name}" := ai_use)
+
+# Fitted change in AI share (pp) between the first AI wave and March 2026, from a linear trend
+# through every wave in that window (suppressed waves skipped)
+fit_start <- min(waves$start); fit_end <- max(waves$start[waves$Wave %in% aligned_two])
+ai_fit <- use_ind |> filter(start <= fit_end, !is.na(ai_use)) |> group_by(short) |>
+  summarise(ai_fit_waves = n(),
+            ai_change_fit = 100 * unname(coef(lm(ai_use ~ as.numeric(start)))[2]) *
+                            as.numeric(fit_end - fit_start), .groups = "drop")
 
 panel <- ind_map |>
   left_join(ai_single(waves$Wave[1], "ai_2023"), by = "short") |>
@@ -174,8 +206,10 @@ panel <- ind_map |>
   left_join(hours_w, by = c("oph" = "oph_ind")) |>
   left_join(depth |> select(short, extensive, trained_half_plus), by = "short") |>
   left_join(ext_avg, by = c("bics" = "industry")) |>
+  left_join(ai_fit, by = "short") |>
   mutate(
-    ai_change_pp      = 100 * (ai_aligned2 - ai_start2),   # MAIN: aligned and smoothed
+    ai_change_pp      = ai_change_fit,                     # MAIN: fitted trend, Sept 2023 to Mar 2026
+    ai_change_avg2    = 100 * (ai_aligned2 - ai_start2),   # two-wave averages at each end, to Mar 2026
     ai_change_single  = 100 * (ai_2026 - ai_2023),         # first draft: single waves, to Oct 2026
     ai_change_aligned1 = 100 * (ai_mar26 - ai_2023),       # single waves, aligned to Mar 2026
     ai_change_latest2 = 100 * (ai_last2 - ai_start2))      # smoothed, to Oct 2026
@@ -193,11 +227,13 @@ cor_row <- function(x, y, label, spec) {
 }
 specs <- tribble(
   ~spec,                                     ~x,                    ~y_post,     ~y_accel,
-  "Main: AI Sept/Dec 2023 to Dec 2025/Mar 2026 (2-wave avg); trend growth", "ai_change_pp", "g_post", "g_accel",
+  "Main: AI fitted trend Sept 2023 to Mar 2026; trend growth",            "ai_change_pp", "g_post", "g_accel",
+  "AI Sept/Dec 2023 to Dec 2025/Mar 2026 (2-wave avg); trend growth",      "ai_change_avg2", "g_post", "g_accel",
   "First draft: AI Sept 2023 to Oct 2026 (single waves); end-point growth", "ai_change_single", "g_post_ep", "g_accel_ep",
   "AI Sept 2023 to Mar 2026 (single waves); end-point growth",             "ai_change_aligned1", "g_post_ep", "g_accel_ep",
   "AI to Oct 2026 (2-wave avg); trend growth",                            "ai_change_latest2", "g_post", "g_accel",
-  "AI to Mar 2026 (2-wave avg); end-point growth",                        "ai_change_pp", "g_post_ep", "g_accel_ep")
+  "AI to Mar 2026 (2-wave avg); end-point growth",                        "ai_change_avg2", "g_post_ep", "g_accel_ep",
+  "AI fitted trend to Mar 2026; end-point growth",                        "ai_change_pp", "g_post_ep", "g_accel_ep")
 cors <- bind_rows(lapply(seq_len(nrow(specs)), function(i) {
   s <- specs[i, ]
   bind_rows(
@@ -208,6 +244,10 @@ ex_re <- p13 |> filter(short != "Real estate")
 cors <- bind_rows(cors,
   cor_row(ex_re$ai_change_pp, ex_re$g_post,  "Excl. real estate: AI change vs productivity growth", "Main"),
   cor_row(ex_re$ai_change_pp, ex_re$g_accel, "Excl. real estate: AI change vs growth minus trend", "Main"),
+  with(filter(p13, !short %in% c("Education", "Health & social care")),
+       cor_row(ai_change_pp, g_post, "Excl. education and health: AI change vs productivity growth", "Main")),
+  with(filter(p13, !short %in% c("Education", "Health & social care")),
+       cor_row(ai_change_pp, g_accel, "Excl. education and health: AI change vs growth minus trend", "Main")),
   cor_row(100 * p13$extensive_avg, p13$g_post,  "Extensive use (avg waves 159 and 165) vs productivity growth", "Main"),
   cor_row(100 * p13$extensive_avg, p13$g_accel, "Extensive use (avg waves 159 and 165) vs growth minus trend", "Main"),
   with(filter(p13, short != "Info & comms"),
@@ -245,14 +285,17 @@ regs <- bind_rows(reg_row(m_raw, "Main: growth on AI change"),
 write.csv(regs, "outputs/regressions.csv", row.names = FALSE)
 
 # Implied size of effect: what the cross-industry slope would mean for the whole economy
-ai_all_change <- 100 * (mean(use_all$ai_use[use_all$Wave %in% aligned_two]) -
-                        mean(use_all$ai_use[use_all$Wave %in% first_two]))
+ua <- use_all |> filter(start <= fit_end)
+ai_all_change <- 100 * unname(coef(lm(ai_use ~ as.numeric(start), data = ua))[2]) * as.numeric(fit_end - fit_start)
+slope_ci <- confint(m_raw)[2, ]
 implied <- tibble(
   spec = c("Main", "First draft"),
   slope_pp_growth_per_pp_ai = c(coef(m_raw)[2], coef(m_first)[2]),
   ai_change_all_businesses_pp = c(ai_all_change,
                                   100 * (tail(use_all$ai_use, 1) - head(use_all$ai_use, 1))),
   implied_extra_growth_pp_a_year = slope_pp_growth_per_pp_ai * ai_change_all_businesses_pp,
+  implied_ci_low  = c(slope_ci[1] * ai_all_change, NA),
+  implied_ci_high = c(slope_ci[2] * ai_all_change, NA),
   whole_economy_growth_since_2023Q3 = whole_econ$g_post,
   whole_economy_trend_2015_19 = whole_econ$g_pre)
 write.csv(implied, "outputs/implied_effect.csv", row.names = FALSE)
@@ -316,24 +359,30 @@ p1 <- ggplot(use_ind, aes(start, ai_use, group = short)) +
   geom_text(data = end_lab, aes(start, ai_use, label = lab), inherit.aes = FALSE,
             colour = navy, fontface = "bold", hjust = -0.1, size = 3.4, family = fam) +
   scale_y_continuous(labels = percent_format(accuracy = 1)) +
-  scale_x_date(expand = expansion(mult = c(0.02, 0.25))) +
+  scale_x_date(breaks = as.Date(c("2024-01-01", "2025-01-01", "2026-01-01")), date_labels = "%Y",
+               expand = expansion(mult = c(0.02, 0.25))) +
   labs(title = "AI use has roughly tripled since 2023",
        subtitle = "Share of businesses using at least one AI technology (grey lines: industries)",
-       x = NULL, y = NULL, caption = src_bics) + theme_rg
+       x = NULL, y = NULL,
+       caption = paste0(src_bics, "\nGaps in grey lines are survey waves where ONS suppressed the figure.")) + theme_rg
 save_web_chart("outputs/chart1_ai_use_over_time.png", p1, width = 8, height = 5, dpi = 200, bg = "white")
 
 # Chart 2: but few use it extensively or train staff
 d2 <- depth |> filter(!is.na(extensive)) |>
   select(short, `Use AI extensively` = extensive, `At least half of staff trained` = trained_half_plus) |>
-  pivot_longer(-short) |> filter(!is.na(value))
-p2 <- ggplot(d2, aes(value, reorder(short, value), fill = short == "All businesses")) +
+  pivot_longer(-short) |>
+  mutate(name = factor(name, levels = c("Use AI extensively", "At least half of staff trained")),
+         short = reorder(short, ifelse(name == "Use AI extensively", value, 0), sum),
+         lab = ifelse(is.na(value), "n/a", percent(value, accuracy = 1)),
+         value0 = ifelse(is.na(value), 0, value))
+p2 <- ggplot(d2, aes(value0, short, fill = short == "All businesses")) +
   geom_col(width = 0.65) + facet_wrap(~name) +
-  geom_text(aes(label = percent(value, accuracy = 1)), hjust = -0.12, size = 3.8, colour = ink, family = fam) +
+  geom_text(aes(label = lab), hjust = -0.12, size = 3.8, colour = ink, family = fam) +
   scale_fill_manual(values = c(`TRUE` = navy, `FALSE` = grey)) +
   scale_x_continuous(labels = percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.18))) +
   labs(title = "Most firms that use AI only dabble",
        subtitle = "Share of firms using AI or unsure whether they do, September to October 2026",
-       x = NULL, y = NULL, caption = paste0(src_bics, "\nIndustries with suppressed figures are not shown.")) + theme_rg
+       x = NULL, y = NULL, caption = paste0(src_bics, "\nn/a = figure suppressed by ONS. Industries where both figures are suppressed are not shown.")) + theme_rg
 save_web_chart("outputs/chart2_depth_and_training.png", p2, width = 9, height = 5.5, dpi = 200, bg = "white")
 
 # Chart 3: rise in AI use vs productivity growth, main specification
@@ -356,11 +405,11 @@ p3 <- ggplot(d3, aes(ai_change_pp, growth)) +
   facet_wrap(~measure) +
   labs(title = "No clear link yet between AI take-up and productivity",
        subtitle = sprintf("Each dot is an industry (n = %d). AI change measured to March 2026 to match the productivity data", nrow(p13)),
-       x = "Change in share of firms using AI, autumn 2023 to early 2026 (percentage points)",
-       y = sprintf("Output per hour, %% a year (trend to %s)", latest_q),
+       x = "Change in share of firms using AI, Sept 2023 to Mar 2026 (percentage points, fitted trend)",
+       y = "Output per hour, % a year",
        caption = paste("Sources: ONS BICS wave 165; ONS Output per hour worked, UK. RG Economics analysis.",
-                       "\nAI change compares the average of Sept and Dec 2023 with the average of Dec 2025 and Mar 2026.",
-                       "\nIndustry estimates; correlation only. Excludes finance, public sector, agriculture, energy and water.")) +
+                       "\nAI change is a trend fitted through every survey from Sept 2023 to Mar 2026. Productivity is trend growth to 2026 Q1.",
+                       "\nIndustry estimates; correlation only. Excludes finance, public administration, agriculture, energy and water.")) +
   theme_rg
 save_web_chart("outputs/chart3_ai_vs_productivity.png", p3, width = 10, height = 5.8, dpi = 200, bg = "white")
 
@@ -379,5 +428,7 @@ cat("\nCorrelations:\n"); print(cors |> select(spec, comparison, n, pearson, p_p
 cat("\nRegressions (HC3):\n"); print(regs, n = 30, width = 200)
 cat("\nLeave-one-out:\n"); print(loo, n = 20)
 cat("\nImplied effect:\n"); print(implied, width = 200)
-print(panel |> select(short, ai_start2, ai_aligned2, ai_change_pp, ai_change_single, g_pre, g_post, g_accel,
+cat("\nWhole economy:\n"); print(aggregate, width = 200)
+cat("\nRange of r across specifications (all 13 industries):", round(range(cors$pearson[cors$n == 13]), 2), "\n")
+print(panel |> select(short, ai_start2, ai_aligned2, ai_change_pp, ai_change_avg2, ai_change_single, g_pre, g_post, g_accel,
                       g_post_ep, hours_2023, extensive_avg) |> arrange(desc(ai_change_pp)), n = 20, width = 250)
