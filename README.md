@@ -17,7 +17,7 @@ R packages: readxl, dplyr, tidyr, ggplot2, stringr, scales, ggrepel, sandwich, l
 ## Main findings
 1. **AI use has roughly tripled.** Across all businesses it rose from 9% (September 2023) to 30% (September to October 2026). For firms with 10 or more staff it rose from 12% to 38%.
 2. **Use is shallow.** Of firms using AI or unsure whether they do, only 15% use it extensively and only 20% have trained at least half their staff.
-3. **No clear link to productivity yet.** Across 13 industries the correlation between the rise in AI use and growth in output per hour is 0.10 (p = 0.75). Against each industry's 2015 to 2019 trend it is -0.02 (p = 0.94). No robustness check gives a significant result.
+3. **At most a weak link to productivity so far.** Across 13 industries the correlation between the rise in AI use and growth in output per hour is 0.10 (p = 0.75). Against each industry's 2015 to 2019 trend it is -0.02 (p = 0.94). Real estate (very volatile output per hour) pulls this down sharply. Without it the correlation with growth is 0.41 (p = 0.18), or about 0.5 with AI measured to October 2026, and 0.16 against trend. No robustness check on the main specification gives a significant result.
 
 ## Method
 - **AI use** = 1 minus "does not use AI" minus "not sure". This matches the ONS headline definition. BICS weights by number of businesses, not employment.
