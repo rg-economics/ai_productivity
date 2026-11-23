@@ -252,6 +252,14 @@ cors <- bind_rows(cors,
   cor_row(100 * p13$extensive_avg, p13$g_accel, "Extensive use (avg waves 159 and 165) vs growth minus trend", "Main"),
   with(filter(p13, short != "Info & comms"),
        cor_row(100 * extensive_avg, g_post, "Extensive use vs productivity growth, excl. info & comms", "Main")))
+# Hours-weighted correlation, and pre-pandemic growth vs AI (reverse-causality check)
+w_r <- cov.wt(cbind(p13$ai_change_pp, p13$g_post), wt = p13$hours_2023, cor = TRUE)$cor[1, 2]
+cors <- bind_rows(cors,
+  tibble(spec = "Main", comparison = "Hours-weighted (2023 hours): AI change vs productivity growth", n = nrow(p13), pearson = w_r),
+  cor_row(100 * p13$ai_2023, p13$g_pre, "AI use Sept 2023 vs 2015-19 productivity growth", "Check"),
+  with(filter(p13, short != "Info & comms"),
+       cor_row(100 * ai_2023, g_pre, "AI use Sept 2023 vs 2015-19 productivity growth, excl. info & comms", "Check")),
+  cor_row(p13$ai_change_pp, p13$g_pre, "AI change vs 2015-19 productivity growth", "Check"))
 write.csv(cors, "outputs/correlations.csv", row.names = FALSE)
 
 # Leave-one-out on the main and first-draft raw correlations
@@ -429,6 +437,6 @@ cat("\nRegressions (HC3):\n"); print(regs, n = 30, width = 200)
 cat("\nLeave-one-out:\n"); print(loo, n = 20)
 cat("\nImplied effect:\n"); print(implied, width = 200)
 cat("\nWhole economy:\n"); print(aggregate, width = 200)
-cat("\nRange of r across specifications (all 13 industries):", round(range(cors$pearson[cors$n == 13]), 2), "\n")
+cat("\nRange of r across specifications (all 13 industries):", round(range(cors$pearson[cors$n == 13 & !cors$spec %in% c("Check")]), 2), "\n")
 print(panel |> select(short, ai_start2, ai_aligned2, ai_change_pp, ai_change_avg2, ai_change_single, g_pre, g_post, g_accel,
                       g_post_ep, hours_2023, extensive_avg) |> arrange(desc(ai_change_pp)), n = 20, width = 250)
